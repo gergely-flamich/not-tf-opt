@@ -1,0 +1,18 @@
+language: python
+
+python:
+  - "3.5"
+  - "3.6"
+  - "3.7"
+
+# Install dependencies
+install:
+  - pip install --upgrade pip
+  - pip install --no-cache-dir -U -r requirements.txt
+
+# Run unit test
+script:
+  - pytest -v --cov=stheno --cov-report term-missing
+
+after_success:
+  - coveralls
