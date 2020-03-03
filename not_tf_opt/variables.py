@@ -1,8 +1,20 @@
 from collections.abc import Iterable
-
 import tensorflow as tf
 
-from .utils import CoreError, sigmoid_inverse
+
+class VariableError(Exception):
+    """
+    Base error thrown by modules in the core
+    """
+
+
+
+def sigmoid_inverse(x):
+    if tf.reduce_any(x < 0.) or tf.reduce_any(x > 1.):
+        raise ValueError(f"x = {x} was not in the sigmoid function's range ([0, 1])!")
+    x = tf.clip_by_value(x, 1e-10, 1 - 1e-10)
+
+    return -tf.math.log(1. / x - 1.)
 
 
 class BoundedVariable(tf.Module):
