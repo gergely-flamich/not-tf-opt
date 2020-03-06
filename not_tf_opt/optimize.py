@@ -5,7 +5,13 @@ import tensorflow_probability as tfp
 
 from numpy import finfo, float64
 
-from .variables import BoundedVariable
+from .variables import AbstractVariable
+
+
+AVAILABLE_OPTIMIZERS = {
+    "l-bfgs": tfp.optimizer.lbfgs_minimize,
+    "bfgs": tfp.optimizer.bfgs_minimize
+}
 
 
 class OptimizationError(Exception):
@@ -21,12 +27,14 @@ def bounded_minimize(function,
                      initial_inverse_hessian_estimate=None,
                      max_iterations=1000,
                      parallel_iterations=1,
-                     trace=False):
+                     optimzier="l-bfgs",
+                     trace=False,
+                     logger=print):
     """
-    Takes a function whose arguments are boa.core.BoundedVariables,
+    Takes a function whose arguments are subclasses of boa.core.AbstractVariable,
     and performs L-BFGS-B on it.
     :param function:
-    :param vs: BoundedVariables or iterables of BoundedVariables
+    :param vs: Structure of NTFO variables
     :param num_correction_pairs:
     :param tolerance:
     :param x_tolerance:
@@ -36,6 +44,11 @@ def bounded_minimize(function,
     :param parallel_iterations:
     :return:
     """
+
+    if optimzier not in AVAILABLE_OPTIMIZERS:
+        raise OptimizationError(f"Specified optimizer ({optimzier}) must be one of {AVAILABLE_OPTIMIZERS}!")
+
+    optimzier = AVAILABLE_OPTIMIZERS[optimzier]
 
     float64_machine_eps = finfo(float64).eps
 
@@ -51,12 +64,13 @@ def bounded_minimize(function,
                       "max_iterations": max_iterations,
                       "parallel_iterations": parallel_iterations}
 
-    # Get the reparameterization of the BoundedVariables
-    reparameterizations = BoundedVariable.get_reparametrizations(vs)
+    # Get the reparameterization of the
+    reparameterizations = get_reparametrizations(vs)
 
     initial_position, bounds, shapes = recursive_flatten(reparameterizations)
 
-    unflatten = lambda x: _recursive_unflatten(x, bounds, shapes)
+    def unflatten(xs):
+        return _recursive_unflatten(xs, bounds, shapes)
 
     # Pull-back of the function to the unconstrained domain:
     # Reparameterize the function such that instead of taking its original bounded
@@ -80,16 +94,16 @@ def bounded_minimize(function,
 
         return value, gradients
 
-    optimizer_results = tfp.optimizer.lbfgs_minimize(fn_with_grads,
-                                                     initial_position=initial_position,
-                                                     **optimizer_args)
+    optimizer_results = optimzier(fn_with_grads,
+                                  initial_position=initial_position,
+                                  **optimizer_args)
 
     if trace:
-        logger.debug(f"Optimizer evaluated the objective {optimizer_results.num_objective_evaluations.numpy()} times!")
-        logger.debug(f"Optimizer terminated after "
-                     f"{optimizer_results.num_iterations.numpy()}/{max_iterations} iterations!")
-        logger.debug(f"Optimizer converged: {optimizer_results.converged.numpy()}")
-        logger.debug(f"Optimizer diverged: {optimizer_results.failed.numpy()}")
+        logger(f"Optimizer evaluated the objective {optimizer_results.num_objective_evaluations.numpy()} times!")
+        logger(f"Optimizer terminated after "
+               f"{optimizer_results.num_iterations.numpy()}/{max_iterations} iterations!")
+        logger(f"Optimizer converged: {optimizer_results.converged.numpy()}")
+        logger(f"Optimizer diverged: {optimizer_results.failed.numpy()}")
 
     optimum = unflatten(optimizer_results.position)
 
@@ -176,9 +190,57 @@ def recursive_forward_transform(args, vs):
     new_args = []
 
     for arg, v in zip(args, vs):
-        if isinstance(v, BoundedVariable):
+        if issubclass(v, AbstractVariable):
             new_args.append(v.forward_transform(arg))
         else:
             new_args.append(recursive_forward_transform(arg, v))
 
     return new_args
+
+
+def get_all(vars):
+    """
+    Get the forward transforms of all given bounded variables
+    :param vars:
+    :return:
+    """
+
+    res = []
+    for v in vars:
+        if issubclass(v, AbstractVariable):
+            res.append(v())
+
+        elif isinstance(v, Iterable):
+            res.append(get_all(v))
+
+        else:
+            raise OptimizationError(f"Item had invalid type: {type(v)} in {vars}")
+
+    return res
+
+
+def get_reparametrizations(vars, flatten=False):
+    """
+    Returns the list of reparameterizations for a list of AbstractVariables. Useful to pass to
+    tf.GradientTape.watch
+    :param bounded_vars:
+    :return:
+    """
+
+    res = []
+    for v in vars:
+        if issubclass(v, AbstractVariable):
+            res.append(v.var)
+
+        elif isinstance(v, Iterable):
+            reparams = get_reparametrizations(v)
+
+            if flatten:
+                res += reparams
+            else:
+                res.append(reparams)
+
+        else:
+            raise OptimizationError(f"Item had invalid type: {type(v)} in {vars}")
+
+    return res

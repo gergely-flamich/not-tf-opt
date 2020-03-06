@@ -1,6 +1,7 @@
 import abc
 from collections.abc import Iterable
 import tensorflow as tf
+import tensorflow_probability as tfp
 
 
 class VariableError(Exception):
@@ -14,7 +15,7 @@ def sigmoid_inverse(x):
         raise ValueError(f"x = {x} was not in the sigmoid function's range ([0, 1])!")
     x = tf.clip_by_value(x, 1e-10, 1 - 1e-10)
 
-    return -tf.math.log(1. / x - 1.)
+    return tf.math.log(x) - tf.math.log(1. - x)
 
 
 class AbstractVariable(tf.Module, abc.ABC):
@@ -66,7 +67,6 @@ class AbstractVariable(tf.Module, abc.ABC):
         """
         pass
 
-    @tf.Module.with_name_scope
     def _prepare_value(self, x):
         """
         Attempts basic conversion and casting to the appropriate TF 2.0
@@ -125,11 +125,34 @@ class PositiveVariable(AbstractVariable):
 
     @tf.Module.with_name_scope
     def forward_transform(self, x):
-        pass
+        """
+        Forward transform using softplus:
+
+        c(x) = log(1 + e^x)
+
+        :param x:
+        :return:
+        """
+
+        x = self._prepare_value(x)
+        return tf.nn.softplus(x)
 
     @tf.Module.with_name_scope
     def backward_transform(self, x):
-        pass
+        """
+        Backward transform using inverse softplus:
+
+        x(c) = log(e^c - 1)
+
+        :param x:
+        :return:
+        """
+
+        if tf.reduce_any(x < 0):
+            raise VariableError(f"All provided values must be positive! (Got x = {x})")
+
+        x = self._prepare_value(x)
+        return tfp.math.softplus_inverse(x)
 
     @tf.Module.with_name_scope
     def valid_range(self):
@@ -153,13 +176,13 @@ class BoundedVariable(AbstractVariable):
                  name="bounded_variable",
                  **kwargs):
 
+        self.lower = tf.convert_to_tensor(lower, dtype=dtype)
+        self.upper = tf.convert_to_tensor(upper, dtype=dtype)
+
         super(BoundedVariable, self).__init__(init=init,
                                               dtype=dtype,
                                               name=name,
                                               **kwargs)
-
-        self.lower = tf.convert_to_tensor(lower, dtype=self.dtype)
-        self.upper = tf.convert_to_tensor(upper, dtype=self.dtype)
 
     @tf.Module.with_name_scope
     def forward_transform(self, x):
@@ -168,7 +191,7 @@ class BoundedVariable(AbstractVariable):
         :param x: tensor to be transformed in the unconstrained domain
         :return: tensor in the constrained domain
         """
-        x = tf.convert_to_tensor(x, dtype=self.dtype)
+        x = self._prepare_value(x)
         return (self.upper - self.lower) * tf.nn.sigmoid(x) + self.lower
 
     @tf.Module.with_name_scope
@@ -178,53 +201,15 @@ class BoundedVariable(AbstractVariable):
         :param x: tensor to be transformed in the constrained domain
         :return: tensor in the unconstrained domain
         """
-        x = tf.convert_to_tensor(x, dtype=self.dtype)
+        x = self._prepare_value(x)
+
+        if tf.reduce_any(x < self.lower) or tf.reduce_any(x > self.upper):
+            raise VariableError(f"All values must be in the range {self.valid_range()}! (Got x = {x})")
+
         return sigmoid_inverse((x - self.lower) / (self.upper - self.lower + eps))
 
     @tf.Module.with_name_scope
     def valid_range(self):
-        return self.lower, self.upper
+        return self.lower.numpy(), self.upper.numpy()
 
-    # TODO: Maybe there is a nicer way of doing this
-    @staticmethod
-    def get_all(bounded_vars):
-        """
-        Get the forward transforms of all given bounded variables
-        :param bounded_vars:
-        :return:
-        """
 
-        res = []
-        for bv in bounded_vars:
-            if isinstance(bv, BoundedVariable):
-                res.append(bv())
-
-            elif isinstance(bv, Iterable):
-                res.append(BoundedVariable.get_all(bv))
-
-        return res
-
-    @staticmethod
-    def get_reparametrizations(bounded_vars, flatten=False):
-        """
-        Returns the list of reparameterizations for a list of BoundedVariables. Useful to pass to
-        tf.GradientTape.watch
-        :param bounded_vars:
-        :return:
-        """
-
-        res = []
-        for bv in bounded_vars:
-            if isinstance(bv, BoundedVariable):
-                res.append(bv.reparameterization)
-
-            elif isinstance(bv, Iterable):
-
-                reparams = BoundedVariable.get_reparametrizations(bv)
-
-                if flatten:
-                    res += reparams
-                else:
-                    res.append(reparams)
-
-        return res

@@ -1,7 +1,14 @@
 import pytest
+import numpy as np
 import tensorflow as tf
 
 from not_tf_opt import sigmoid_inverse, AbstractVariable, UnconstrainedVariable, PositiveVariable, BoundedVariable
+
+inf = tf.cast(float("inf"), tf.float64)
+
+
+def assert_near(x, y, atol=None, rtol=None):
+    assert tf.debugging.assert_near(x, y, rtol=rtol, atol=atol) is None
 
 
 class TestSigmoidInverse:
@@ -14,14 +21,11 @@ class TestSigmoidInverse:
         inner_composition = tf.nn.sigmoid(sigmoid_inverse(test_xs))
         outer_composition = sigmoid_inverse(tf.nn.sigmoid(test_reparam_xs))
 
-        inner_max_error = tf.reduce_max(tf.abs(inner_composition - test_xs))
-        outer_max_error = tf.reduce_max(tf.abs(outer_composition - test_reparam_xs))
+        print(tf.reduce_max(tf.abs(outer_composition - test_reparam_xs)))
 
         # Check that the maximum error is within appropriate bounds
-        assert inner_max_error <= 1e-7
-
-        # Note that the sigmoid inverse is quite unstable around the boundary
-        assert outer_max_error <= 1e-3
+        assert_near(inner_composition, test_xs)
+        assert_near(outer_composition, test_reparam_xs, atol=1e-3, rtol=1e-5)
 
     def test_sigmoid_inverse_invalid_range(self):
         """
@@ -55,4 +59,36 @@ class TestSigmoidInverse:
 
 
 class TestVariables:
-    pass
+
+    dtype = tf.float64
+
+    @pytest.mark.parametrize(
+        'var, init, assign',
+        [(UnconstrainedVariable, 5, np.pi),
+         (UnconstrainedVariable, tf.zeros(5, dtype=tf.float64), tf.ones(5, dtype=tf.float64)),
+         (UnconstrainedVariable, np.ones([5, 3], dtype=np.float64), 0.1 * np.ones([5, 3], dtype=np.float64)),
+         (PositiveVariable, 5, np.pi),
+         (PositiveVariable, tf.zeros(5, dtype=tf.float64) + 0.1, tf.ones(5, dtype=tf.float64)),
+         (PositiveVariable, np.ones([5, 3], dtype=np.float64), 0.1 * np.ones([5, 3], dtype=np.float64)),
+         (lambda x: BoundedVariable(x, 0, 3), np.pi - 1, np.pi - 2),
+         (lambda x: BoundedVariable(x, 0, 3), tf.zeros(5, dtype=tf.float64) + 0.1, tf.ones(5, dtype=tf.float64)),
+         (lambda x: BoundedVariable(x, 0, 3), np.ones([5, 3], dtype=np.float64), 0.1 * np.ones([5, 3], dtype=np.float64)),
+         ]
+    )
+    def test_init_and_assign(self, var, init, assign):
+        v = var(init)
+        assert_near(v(), init, 1e-7)
+
+        v.assign(assign)
+        assert_near(v(), assign, 1e-7)
+
+    @pytest.mark.parametrize(
+        'var, valid_range',
+        [(UnconstrainedVariable, (-inf, inf)),
+         (PositiveVariable, (0, inf)),
+         (lambda x: BoundedVariable(x, -9, 10), (-9, 10))
+         ]
+    )
+    def test_valid_ranges(self, var, valid_range):
+        v = var(5)
+        assert v.valid_range() == valid_range
