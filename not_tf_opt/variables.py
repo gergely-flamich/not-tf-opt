@@ -41,15 +41,29 @@ class AbstractVariable(tf.Module, abc.ABC):
     @tf.Module.with_name_scope
     @abc.abstractmethod
     def forward_transform(self, x):
-        pass
+        """
+        Maps the argument from the unconstrained domain to the constrained domain.
+        :param x:
+        :return:
+        """
 
     @tf.Module.with_name_scope
     @abc.abstractmethod
     def backward_transform(self, x):
-        pass
+        """
+        Maps the argument from the constrained domain to the unconstrained domain.
+
+        :param x:
+        :return:
+        """
 
     @tf.Module.with_name_scope
     def assign(self, x):
+        """
+        Assigns a value from the constrained domain to the unconstrained reparameterization.
+        :param x:
+        :return:
+        """
         self.var.assign(self.backward_transform(x))
 
     @tf.Module.with_name_scope
@@ -65,7 +79,6 @@ class AbstractVariable(tf.Module, abc.ABC):
 
         :return: (lower, upper) - tuple of lower and upper bounds
         """
-        pass
 
     def _prepare_value(self, x):
         """

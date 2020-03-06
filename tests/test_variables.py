@@ -3,12 +3,9 @@ import numpy as np
 import tensorflow as tf
 
 from not_tf_opt import sigmoid_inverse, AbstractVariable, UnconstrainedVariable, PositiveVariable, BoundedVariable
+from .utils import assert_near
 
 inf = tf.cast(float("inf"), tf.float64)
-
-
-def assert_near(x, y, atol=None, rtol=None):
-    assert tf.debugging.assert_near(x, y, rtol=rtol, atol=atol) is None
 
 
 class TestSigmoidInverse:

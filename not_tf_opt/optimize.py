@@ -7,6 +7,10 @@ from numpy import finfo, float64
 
 from .variables import AbstractVariable
 
+__all__ = [
+    "minimize",
+    "OptimizationError"
+]
 
 AVAILABLE_OPTIMIZERS = {
     "l-bfgs": tfp.optimizer.lbfgs_minimize,
@@ -18,21 +22,21 @@ class OptimizationError(Exception):
     pass
 
 
-def bounded_minimize(function,
-                     vs,
-                     num_correction_pairs=10,
-                     tolerance=1e-05,
-                     x_tolerance=0,
-                     f_relative_tolerance=1e7,
-                     initial_inverse_hessian_estimate=None,
-                     max_iterations=1000,
-                     parallel_iterations=1,
-                     optimzier="l-bfgs",
-                     trace=False,
-                     logger=print):
+def minimize(function,
+             vs,
+             num_correction_pairs=10,
+             tolerance=1e-05,
+             x_tolerance=0,
+             f_relative_tolerance=1e7,
+             initial_inverse_hessian_estimate=None,
+             max_iterations=1000,
+             parallel_iterations=1,
+             optimizer="l-bfgs",
+             trace=False,
+             logger=print):
     """
     Takes a function whose arguments are subclasses of boa.core.AbstractVariable,
-    and performs L-BFGS-B on it.
+    and performs some form of BFGS on it.
     :param function:
     :param vs: Structure of NTFO variables
     :param num_correction_pairs:
@@ -42,13 +46,20 @@ def bounded_minimize(function,
     :param initial_inverse_hessian_estimate:
     :param max_iterations:
     :param parallel_iterations:
+    :param logger:
+    :param trace:
+    :param optimizer:
     :return:
     """
 
-    if optimzier not in AVAILABLE_OPTIMIZERS:
-        raise OptimizationError(f"Specified optimizer ({optimzier}) must be one of {AVAILABLE_OPTIMIZERS}!")
+    if optimizer not in AVAILABLE_OPTIMIZERS:
+        raise OptimizationError(f"Specified optimizer ({optimizer}) must be one of {AVAILABLE_OPTIMIZERS}!")
 
-    optimzier = AVAILABLE_OPTIMIZERS[optimzier]
+    if not isinstance(vs, Iterable):
+        raise OptimizationError(f"Variables passed must be in an iterable structure!")
+
+
+    optimzier = AVAILABLE_OPTIMIZERS[optimizer]
 
     float64_machine_eps = finfo(float64).eps
 
@@ -115,7 +126,6 @@ def bounded_minimize(function,
 
 
 def recursive_assign(vs, vals):
-
     for v, val in zip(vs, vals):
         if isinstance(v, tf.Variable):
             v.assign(val)
@@ -128,7 +138,6 @@ def recursive_assign(vs, vals):
 
 
 def recursive_flatten(xs):
-
     res, _, bounds, shapes = _recursive_flatten(xs, 0)
 
     return tf.concat(res, axis=0), bounds, shapes
@@ -186,11 +195,10 @@ def _recursive_unflatten(x, bounds, shapes):
 
 
 def recursive_forward_transform(args, vs):
-
     new_args = []
 
     for arg, v in zip(args, vs):
-        if issubclass(v, AbstractVariable):
+        if issubclass(v.__class__, AbstractVariable):
             new_args.append(v.forward_transform(arg))
         else:
             new_args.append(recursive_forward_transform(arg, v))
@@ -200,14 +208,14 @@ def recursive_forward_transform(args, vs):
 
 def get_all(vars):
     """
-    Get the forward transforms of all given bounded variables
+    Get the forward transforms of all given variables
     :param vars:
     :return:
     """
 
     res = []
     for v in vars:
-        if issubclass(v, AbstractVariable):
+        if issubclass(v.__class__, AbstractVariable):
             res.append(v())
 
         elif isinstance(v, Iterable):
@@ -229,7 +237,7 @@ def get_reparametrizations(vars, flatten=False):
 
     res = []
     for v in vars:
-        if issubclass(v, AbstractVariable):
+        if issubclass(v.__class__, AbstractVariable):
             res.append(v.var)
 
         elif isinstance(v, Iterable):
