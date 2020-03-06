@@ -28,7 +28,7 @@ def test_minimize_arguments():
      PositiveVariable,
      lambda x: BoundedVariable(x, -100., 100.)]
 )
-def test_unconstrained_minimize(variable):
+def test_high_dimensional_minimize(variable):
     """
     Example taken from
     https://www.tensorflow.org/probability/api_docs/python/tfp/optimizer/lbfgs_minimize

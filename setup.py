@@ -5,7 +5,7 @@ with open("README.md", "r") as fh:
 
 setuptools.setup(
     name="not-tf-opt",
-    version="0.0.1",
+    version="0.0.2",
     author="Gergely Flamich",
     author_email="flamich.gergely@gmail.com",
     description="A package that provides a nicer interface to various TF 2.0 optimizers.",
