@@ -3,6 +3,11 @@ from collections.abc import Iterable
 import tensorflow as tf
 import tensorflow_probability as tfp
 
+from numpy import float32, float64, finfo
+
+eps_f32 = finfo(float32).eps
+eps_f64 = finfo(float64).eps
+
 
 class VariableError(Exception):
     """
@@ -161,7 +166,7 @@ class PositiveVariable(AbstractVariable):
         :return:
         """
 
-        if tf.reduce_any(x < 0):
+        if tf.reduce_any(x <= 0):
             raise VariableError(f"All provided values must be positive! (Got x = {x})")
 
         x = self._prepare_value(x)
@@ -192,6 +197,12 @@ class BoundedVariable(AbstractVariable):
         self.lower = tf.convert_to_tensor(lower, dtype=dtype)
         self.upper = tf.convert_to_tensor(upper, dtype=dtype)
 
+        if tf.reduce_any(self.lower >= self.upper):
+            raise VariableError(f"Lower bound {self.lower} must be less than upper bound {self.upper}!")
+
+        if tf.reduce_any(self.lower >= init) or tf.reduce_any(self.upper <= init):
+            raise VariableError("Initialization value must be between given lower and upper bounds!")
+
         super(BoundedVariable, self).__init__(init=init,
                                               dtype=dtype,
                                               name=name,
@@ -216,7 +227,7 @@ class BoundedVariable(AbstractVariable):
         """
         x = self._prepare_value(x)
 
-        if tf.reduce_any(x < self.lower) or tf.reduce_any(x > self.upper):
+        if tf.reduce_any(x <= self.lower) or tf.reduce_any(x >= self.upper):
             raise VariableError(f"All values must be in the range {self.valid_range()}! (Got x = {x})")
 
         return sigmoid_inverse((x - self.lower) / (self.upper - self.lower + eps))

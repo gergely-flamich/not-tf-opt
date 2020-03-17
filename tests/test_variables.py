@@ -2,9 +2,12 @@ import pytest
 import numpy as np
 import tensorflow as tf
 
-from not_tf_opt import sigmoid_inverse, AbstractVariable, UnconstrainedVariable, PositiveVariable, BoundedVariable
+from not_tf_opt import sigmoid_inverse, UnconstrainedVariable, PositiveVariable, BoundedVariable, VariableError
 from .utils import assert_near
 
+from numpy import finfo, float64
+
+eps_f64 = finfo(float64).eps
 inf = tf.cast(float("inf"), tf.float64)
 
 
@@ -17,8 +20,6 @@ class TestSigmoidInverse:
 
         inner_composition = tf.nn.sigmoid(sigmoid_inverse(test_xs))
         outer_composition = sigmoid_inverse(tf.nn.sigmoid(test_reparam_xs))
-
-        print(tf.reduce_max(tf.abs(outer_composition - test_reparam_xs)))
 
         # Check that the maximum error is within appropriate bounds
         assert_near(inner_composition, test_xs)
@@ -89,3 +90,36 @@ class TestVariables:
     def test_valid_ranges(self, var, valid_range):
         v = var(5)
         assert v.valid_range() == valid_range
+
+    @pytest.mark.parametrize(
+        'var, init, assign',
+        [(PositiveVariable, 5, -eps_f64),
+         (PositiveVariable, 5, 0),
+         (PositiveVariable, 5, -1.),
+         (lambda x: BoundedVariable(x, 0, 3), 1., -eps_f64),
+         (lambda x: BoundedVariable(x, 0, 3), 1., 0.),
+         (lambda x: BoundedVariable(x, 0, 3), 1., 3 + eps_f64),
+         (lambda x: BoundedVariable(x, 0, 3), 1., 3),
+         (lambda x: BoundedVariable(x, 0, 3), 1., -10),
+         (lambda x: BoundedVariable(x, 0, 3), 1., 300)
+         ]
+    )
+    def test_invalid_assign(self, var, init, assign):
+
+        # Initialize variable with a value in the appropriate range
+        v = var(init)
+
+        # Try to set the value in an invalid range
+        with pytest.raises(VariableError):
+            v.assign(assign)
+
+    @pytest.mark.parametrize(
+        'var, lower, upper, init',
+        [(BoundedVariable, 0, 0, 0),
+         (BoundedVariable, 2, 0, 0),
+         (BoundedVariable, 0, 1, 2)]
+    )
+    def test_invalid_init(self, var, lower, upper, init):
+
+        with pytest.raises(VariableError):
+            bv = var(init=init, lower=lower, upper=upper)

@@ -1,4 +1,5 @@
 from collections.abc import Iterable
+from inspect import signature
 
 import tensorflow as tf
 import tensorflow_probability as tfp
@@ -24,6 +25,7 @@ class OptimizationError(Exception):
 
 def minimize(function,
              vs,
+             explicit=True,
              num_correction_pairs=10,
              tolerance=1e-05,
              x_tolerance=0,
@@ -39,6 +41,8 @@ def minimize(function,
     and performs some form of BFGS on it.
     :param function:
     :param vs: Structure of NTFO variables
+    :param explicit: If True, `function` must have the signature `function(*vs)`.
+    If False, `function` must have the signature `function()`
     :param num_correction_pairs:
     :param tolerance:
     :param x_tolerance:
@@ -58,10 +62,17 @@ def minimize(function,
     if not isinstance(vs, Iterable):
         raise OptimizationError(f"Variables passed must be in an iterable structure!")
 
-
-    optimzier = AVAILABLE_OPTIMIZERS[optimizer]
+    optimizer = AVAILABLE_OPTIMIZERS[optimizer]
 
     float64_machine_eps = finfo(float64).eps
+
+    # Check if the function and the passed arguments are compatible
+    num_function_params = len(signature(function).parameters)
+    num_args = len(vs)
+
+    if explicit and num_function_params != num_args:
+        raise OptimizationError(f"Optimization target takes {num_function_params} argument(s) " \
+                                f"but {num_args} were given!")
 
     # These are chosen to match the parameters of
     # scipy.optimizer.fmin_l_bfgs_b
@@ -90,22 +101,43 @@ def minimize(function,
         new_args = recursive_forward_transform(args, vs)
         return function(*new_args)
 
-    def fn_with_grads(x):
+    def fn_with_grads(x, first_run=False):
 
-        # Get back the original arguments
-        args = unflatten(x)
+        if explicit:
+            # Get back the original arguments
+            args = unflatten(x)
 
-        with tf.GradientTape(watch_accessed_variables=False) as tape:
-            tape.watch(args)
-            value = reparameterized_function(*args)
-        gradients = tape.gradient(value, args)
+            with tf.GradientTape(watch_accessed_variables=False) as tape:
+                tape.watch(args)
+                value = reparameterized_function(*args)
+
+            gradients = tape.gradient(value, args)
+        else:
+            # If we're performing implicit optimization, we assign the parameter
+            # values to the watched variables at the start
+            values = unflatten(x)
+            recursive_assign(reparameterizations, values)
+
+            with tf.GradientTape(watch_accessed_variables=False) as tape:
+                tape.watch(reparameterizations)
+                value = function()
+
+            gradients = tape.gradient(value, reparameterizations)
+
+            if first_run:
+                for grad in gradients:
+                    if grad is None:
+                        raise OptimizationError("Given function does not depend on some of the given variables!")
 
         # We must concatenate the gradients because lbfgs_minimize expects a single vector
         gradients, _, _ = recursive_flatten(gradients)
 
         return value, gradients
 
-    optimizer_results = optimzier(fn_with_grads,
+    # Dry run to check if the optimization can be performed
+    fn_with_grads(initial_position, first_run=True)
+
+    optimizer_results = optimizer(fn_with_grads,
                                   initial_position=initial_position,
                                   **optimizer_args)
 
