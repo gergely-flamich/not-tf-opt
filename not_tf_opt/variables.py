@@ -197,16 +197,16 @@ class BoundedVariable(AbstractVariable):
         self.lower = tf.convert_to_tensor(lower, dtype=dtype)
         self.upper = tf.convert_to_tensor(upper, dtype=dtype)
 
-        if tf.reduce_any(self.lower >= self.upper):
-            raise VariableError(f"Lower bound {self.lower} must be less than upper bound {self.upper}!")
-
-        if tf.reduce_any(self.lower >= init) or tf.reduce_any(self.upper <= init):
-            raise VariableError("Initialization value must be between given lower and upper bounds!")
-
         super(BoundedVariable, self).__init__(init=init,
                                               dtype=dtype,
                                               name=name,
                                               **kwargs)
+
+        if tf.reduce_any(self.lower >= self.upper):
+            raise VariableError(f"Lower bound {self.lower} must be less than upper bound {self.upper}!")
+
+        if tf.reduce_any(self.lower >= self()) or tf.reduce_any(self.upper <= self()):
+            raise VariableError("Initialization value must be between given lower and upper bounds!")
 
     @tf.Module.with_name_scope
     def forward_transform(self, x):
