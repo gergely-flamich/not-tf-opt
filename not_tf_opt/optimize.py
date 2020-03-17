@@ -238,27 +238,6 @@ def recursive_forward_transform(args, vs):
     return new_args
 
 
-def get_all(vars):
-    """
-    Get the forward transforms of all given variables
-    :param vars:
-    :return:
-    """
-
-    res = []
-    for v in vars:
-        if issubclass(v.__class__, AbstractVariable):
-            res.append(v())
-
-        elif isinstance(v, Iterable):
-            res.append(get_all(v))
-
-        else:
-            raise OptimizationError(f"Item had invalid type: {type(v)} in {vars}")
-
-    return res
-
-
 def get_reparametrizations(vars, flatten=False):
     """
     Returns the list of reparameterizations for a list of AbstractVariables. Useful to pass to
