@@ -10,6 +10,7 @@ from .variables import AbstractVariable
 
 __all__ = [
     "minimize",
+    "get_reparametrizations",
     "OptimizationError"
 ]
 

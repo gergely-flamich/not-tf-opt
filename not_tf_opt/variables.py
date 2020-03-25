@@ -1,26 +1,20 @@
 import abc
-from collections.abc import Iterable
 import tensorflow as tf
 import tensorflow_probability as tfp
 
 from numpy import float32, float64, finfo
 
+from .utils import map_to_bounded_interval, map_from_bounded_interval, VariableError
+
+__all__ = [
+    "AbstractVariable",
+    "UnconstrainedVariable",
+    "PositiveVariable",
+    "BoundedVariable",
+]
+
 eps_f32 = finfo(float32).eps
 eps_f64 = finfo(float64).eps
-
-
-class VariableError(Exception):
-    """
-    Base error thrown by modules in the core
-    """
-
-
-def sigmoid_inverse(x):
-    if tf.reduce_any(x < 0.) or tf.reduce_any(x > 1.):
-        raise ValueError(f"x = {x} was not in the sigmoid function's range ([0, 1])!")
-    x = tf.clip_by_value(x, 1e-10, 1 - 1e-10)
-
-    return tf.math.log(x) - tf.math.log(1. - x)
 
 
 class AbstractVariable(tf.Module, abc.ABC):
@@ -41,7 +35,8 @@ class AbstractVariable(tf.Module, abc.ABC):
 
         prepared = self._prepare_value(init)
         self.var = tf.Variable(self.backward_transform(prepared),
-                               dtype=self.dtype)
+                               dtype=self.dtype,
+                               name=f"{name}/reparametrization")
 
     @tf.Module.with_name_scope
     @abc.abstractmethod
@@ -70,6 +65,13 @@ class AbstractVariable(tf.Module, abc.ABC):
         :return:
         """
         self.var.assign(self.backward_transform(x))
+
+    def assign_var(self, x):
+
+        if not isinstance(x, self.__class__):
+            raise VariableError(f"Variable must have type {self.__class__} but had type {type(x)}!")
+
+        self.assign(x())
 
     @tf.Module.with_name_scope
     def __call__(self):
@@ -194,8 +196,8 @@ class BoundedVariable(AbstractVariable):
                  name="bounded_variable",
                  **kwargs):
 
-        self.lower = tf.convert_to_tensor(lower, dtype=dtype)
-        self.upper = tf.convert_to_tensor(upper, dtype=dtype)
+        self._lower = tf.convert_to_tensor(lower, dtype=dtype)
+        self._upper = tf.convert_to_tensor(upper, dtype=dtype)
 
         super(BoundedVariable, self).__init__(init=init,
                                               dtype=dtype,
@@ -208,6 +210,28 @@ class BoundedVariable(AbstractVariable):
         if tf.reduce_any(self.lower >= self()) or tf.reduce_any(self.upper <= self()):
             raise VariableError("Initialization value must be between given lower and upper bounds!")
 
+    @property
+    def lower(self):
+        return self._lower
+
+    @lower.setter
+    def lower(self, x):
+        if tf.reduce_any(x >= self.upper):
+            raise VariableError(f"New lower bound {x} must be less than upper bound {self.upper}!")
+
+        self._lower = x
+
+    @property
+    def upper(self):
+        return self._upper
+
+    @upper.setter
+    def upper(self, x):
+        if tf.reduce_any(self.lower >= x):
+            raise VariableError(f"Lower bound {self.lower} must be less than new upper bound {x}!")
+
+        self._upper = x
+
     @tf.Module.with_name_scope
     def forward_transform(self, x):
         """
@@ -216,7 +240,7 @@ class BoundedVariable(AbstractVariable):
         :return: tensor in the constrained domain
         """
         x = self._prepare_value(x)
-        return (self.upper - self.lower) * tf.nn.sigmoid(x) + self.lower
+        return map_to_bounded_interval(x, self.lower, self.upper)
 
     @tf.Module.with_name_scope
     def backward_transform(self, x, eps=1e-12):
@@ -227,13 +251,18 @@ class BoundedVariable(AbstractVariable):
         """
         x = self._prepare_value(x)
 
-        if tf.reduce_any(x <= self.lower) or tf.reduce_any(x >= self.upper):
-            raise VariableError(f"All values must be in the range {self.valid_range()}! (Got x = {x})")
-
-        return sigmoid_inverse((x - self.lower) / (self.upper - self.lower + eps))
+        return map_from_bounded_interval(x, self.lower, self.upper)
 
     @tf.Module.with_name_scope
     def valid_range(self):
         return self.lower.numpy(), self.upper.numpy()
 
+    def assign_var(self, x):
 
+        if not isinstance(x, self.__class__):
+            raise VariableError(f"Variable must have type {self.__class__} but had type {type(x)}!")
+
+        self.lower = x.lower
+        self.upper = x.upper
+
+        self.assign(x())

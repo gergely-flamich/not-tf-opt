@@ -71,6 +71,8 @@ class TestVariables:
          (lambda x: BoundedVariable(x, 0, 3), np.pi - 1, np.pi - 2),
          (lambda x: BoundedVariable(x, 0, 3), tf.zeros(5, dtype=tf.float64) + 0.1, tf.ones(5, dtype=tf.float64)),
          (lambda x: BoundedVariable(x, 0, 3), np.ones([5, 3], dtype=np.float64), 0.1 * np.ones([5, 3], dtype=np.float64)),
+         (lambda x: BoundedVariable(x, 0, 3), 1., 0.),
+         (lambda x: BoundedVariable(x, 0, 3), 1., 3),
          ]
     )
     def test_init_and_assign(self, var, init, assign):
@@ -97,9 +99,6 @@ class TestVariables:
          (PositiveVariable, 5, 0),
          (PositiveVariable, 5, -1.),
          (lambda x: BoundedVariable(x, 0, 3), 1., -eps_f64),
-         (lambda x: BoundedVariable(x, 0, 3), 1., 0.),
-         (lambda x: BoundedVariable(x, 0, 3), 1., 3 + eps_f64),
-         (lambda x: BoundedVariable(x, 0, 3), 1., 3),
          (lambda x: BoundedVariable(x, 0, 3), 1., -10),
          (lambda x: BoundedVariable(x, 0, 3), 1., 300)
          ]
