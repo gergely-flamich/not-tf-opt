@@ -196,8 +196,22 @@ class BoundedVariable(AbstractVariable):
                  name="bounded_variable",
                  **kwargs):
 
-        self._lower = tf.convert_to_tensor(lower, dtype=dtype)
-        self._upper = tf.convert_to_tensor(upper, dtype=dtype)
+        init = tf.convert_to_tensor(init)
+
+        lower = tf.convert_to_tensor(lower)
+        lower = tf.cast(lower, dtype)
+
+        upper = tf.convert_to_tensor(upper)
+        upper = tf.cast(upper, dtype)
+
+        if lower.shape == ():
+            lower = tf.ones(init.shape, dtype=dtype) * lower
+
+        if upper.shape == ():
+            upper = tf.ones(init.shape, dtype=dtype) * upper
+
+        self._lower = tf.Variable(lower, dtype=dtype, name="lower_bound")
+        self._upper = tf.Variable(upper, dtype=dtype, name="upper_bound")
 
         super(BoundedVariable, self).__init__(init=init,
                                               dtype=dtype,
@@ -212,25 +226,34 @@ class BoundedVariable(AbstractVariable):
 
     @property
     def lower(self):
-        return self._lower
+        return self._lower.value()
 
     @lower.setter
     def lower(self, x):
+        x = self._prepare_value(x)
         if tf.reduce_any(x >= self.upper):
             raise VariableError(f"New lower bound {x} must be less than upper bound {self.upper}!")
 
-        self._lower = x
+        if x.shape == ():
+            x = tf.ones(self.var.shape, dtype=self.dtype) * x
+
+        self._lower.assign(x)
 
     @property
     def upper(self):
-        return self._upper
+        return self._upper.value()
 
     @upper.setter
     def upper(self, x):
+        x = self._prepare_value(x)
+
         if tf.reduce_any(self.lower >= x):
             raise VariableError(f"Lower bound {self.lower} must be less than new upper bound {x}!")
 
-        self._upper = x
+        if x.shape == ():
+            x = tf.ones(self.var.shape, dtype=self.dtype) * x
+
+        self._upper.assign(x)
 
     @tf.Module.with_name_scope
     def forward_transform(self, x):
