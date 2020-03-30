@@ -38,6 +38,10 @@ class AbstractVariable(tf.Module, abc.ABC):
                                dtype=self.dtype,
                                name=f"{name}/reparametrization")
 
+    @property
+    def shape(self):
+        return self.var.value().shape
+
     @tf.Module.with_name_scope
     @abc.abstractmethod
     def forward_transform(self, x):
